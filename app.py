@@ -22,23 +22,20 @@ from time import sleep
 
 GITHUB_TOKEN = None
 
-
 def enableDpiAwareness():
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Windows 8.1+
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         try:
-            ctypes.windll.user32.SetProcessDPIAware()  # Windows Vista/7 fallback
+            ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             pass
-
 
 def showErrorPopup(title="Error", message="An error occurred."):
     enableDpiAwareness()
     if len(message) > 2000:
         message = message[:2000] + "\n\n[...traceback truncated]"
     ctypes.windll.user32.MessageBoxW(0, message, title, 0x10 | 0x0)
-
 
 def globalExceptionHandler(exctype, value, tb):
     errorMessage = "".join(traceback.format_exception(exctype, value, tb))
@@ -47,15 +44,9 @@ def globalExceptionHandler(exctype, value, tb):
     QApplication.quit()
     sys.exit(1)
 
-
 sys.excepthook = globalExceptionHandler
 
-
 def validate_github_token(token):
-    """
-    Validates a GitHub token by making an authenticated request to the user API.
-    Returns True if valid, False otherwise.
-    """
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = requests.get("https://api.github.com/user", headers=headers)
@@ -63,9 +54,8 @@ def validate_github_token(token):
     except Exception:
         return False
 
-
 class CompatibilityChecker(QThread):
-    finished = Signal(list)  # Emit list of matching releases
+    finished = Signal(list)
     error = Signal(str)
     log = Signal(str)
 
@@ -113,7 +103,6 @@ class CompatibilityChecker(QThread):
                         foundReleases.append(release)
                         foundNewest = True
 
-                # If we found newest matching release(s) in this page, stop paging further
                 if foundNewest:
                     break
 
@@ -138,7 +127,6 @@ class CompatibilityChecker(QThread):
     def getBuildFromName(self, version_name):
         parts = version_name.split('.')
         return '.'.join(parts[:2]) if len(parts) >= 2 else version_name
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -216,7 +204,6 @@ class MainWindow(QMainWindow):
             )
         self.updateTokenLabel()
         
-
     def loadToken(self):
         global GITHUB_TOKEN
         try:
@@ -279,7 +266,6 @@ class MainWindow(QMainWindow):
                     f"Failed to load token from keyring: {e}"
                 )
 
-        # Ask for new token
         token, ok = QInputDialog.getText(
             self,
             "GitHub Token",
@@ -294,7 +280,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Validate the new token
         if not validate_github_token(token.strip()):
             QMessageBox.warning(
                 self,
@@ -376,9 +361,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self, "No Release Found", "No compatible release found for this build."
                 )
-            # Clear the list widget if you have one
             self.foundVersionsList.clear()
-
 
         self.foundVersionsList.clear()
 
@@ -386,15 +369,13 @@ class MainWindow(QMainWindow):
             name = release.get("name", "Unknown")
             url = release.get("html_url", "#")
             item = QListWidgetItem(name)
-            item.setToolTip(url)  # Optional: tooltip shows the URL
+            item.setToolTip(url)
             self.foundVersionsList.addItem(f"{release.get('tag_name', 'No tag')} ")
             self.foundVersionsList.item(self.foundVersionsList.count() - 1).setToolTip(url)
 
-        # Optionally select the first item by default
         if self.foundVersionsList.count() > 0:
             self.foundVersionsList.setCurrentRow(0)
 
-        # Update latestVersionLink label with the first release as summary
         try: 
             firstRelease = foundReleases[0]
             name = firstRelease.get("name", "Unknown")
@@ -436,10 +417,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             showErrorPopup(message=f"Failed to get version info:\n{e}")
 
-
 if __name__ == "__main__":
     enableDpiAwareness()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+

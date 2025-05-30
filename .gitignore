@@ -1,0 +1,6 @@
+# PyInstaller build folders
+/build/
+/dist/
+
+# PyInstaller spec file (optional)
+*.spec

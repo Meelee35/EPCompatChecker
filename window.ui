@@ -9,7 +9,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>568</width>
+    <width>562</width>
     <height>288</height>
    </rect>
   </property>
@@ -22,15 +22,15 @@
   <property name="windowTitle">
    <string>Explorerpatcher compatibility checker</string>
   </property>
-  <property name="unifiedTitleAndToolBarOnMac">
+  <property name="unifiedTitleAndToolBarOnMac" stdset="0">
    <bool>false</bool>
   </property>
   <widget class="QLabel" name="titel">
    <property name="geometry">
     <rect>
-     <x>50</x>
+     <x>0</x>
      <y>10</y>
-     <width>471</width>
+     <width>561</width>
      <height>41</height>
     </rect>
    </property>
@@ -55,7 +55,7 @@
     <rect>
      <x>60</x>
      <y>80</y>
-     <width>371</width>
+     <width>341</width>
      <height>21</height>
     </rect>
    </property>
@@ -69,9 +69,9 @@
   <widget class="QPushButton" name="autoDetect">
    <property name="geometry">
     <rect>
-     <x>440</x>
+     <x>410</x>
      <y>80</y>
-     <width>75</width>
+     <width>91</width>
      <height>23</height>
     </rect>
    </property>
@@ -89,7 +89,7 @@
     <rect>
      <x>60</x>
      <y>110</y>
-     <width>451</width>
+     <width>441</width>
      <height>31</height>
     </rect>
    </property>
@@ -113,7 +113,7 @@
     <rect>
      <x>60</x>
      <y>160</y>
-     <width>451</width>
+     <width>441</width>
      <height>81</height>
     </rect>
    </property>

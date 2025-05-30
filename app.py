@@ -50,7 +50,7 @@ sys.excepthook = globalExceptionHandler
 class CompatibilityChecker(QThread):
     finished = Signal(dict)
     error = Signal(str)
-    log = Signal(str) 
+    log = Signal(str)
 
     def __init__(self, build, parent=None):
         super().__init__(parent)
@@ -65,9 +65,9 @@ class CompatibilityChecker(QThread):
             if GITHUB_TOKEN:
                 self.log.emit("Using GitHub token for authentication.")
                 sleep(3)
-                
+
             self.log.emit("Starting compatibility check...")
-            
+
             while True:
                 url = f"https://api.github.com/repos/{self.owner}/{self.repo}/releases?per_page=100&page={page}"
                 response = requests.get(url, auth=("Meelee35", GITHUB_TOKEN))
@@ -95,8 +95,10 @@ class CompatibilityChecker(QThread):
                 page += 1
 
             self.finished.emit(foundRelease if foundRelease else {})
-        except Exception as e:
-            self.error.emit(str(e))
+        except Exception:
+            error_msg = traceback.format_exc()
+            self.log.emit("Error occurred:\n" + error_msg)
+            self.error.emit(error_msg)
 
     def checkReleaseCompatibility(self, text):
         match = re.search(r"builds\s+([\d.,\s]+)", text, re.IGNORECASE)
@@ -110,7 +112,6 @@ class CompatibilityChecker(QThread):
     def getBuildFromName(self, version_name):
         parts = version_name.split('.')
         return '.'.join(parts[:2]) if len(parts) >= 2 else version_name
-    
 
 
 class MainWindow(QMainWindow):
@@ -134,9 +135,6 @@ class MainWindow(QMainWindow):
         self.autoDetectButton = self.ui.findChild(QPushButton, "autoDetect")
         self.versionInput = self.ui.findChild(QLineEdit, "versionInput")
         self.latestVersionLink = self.ui.findChild(QLabel, "latestVersionLink")
-        
-
-
 
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.clicked.connect(
@@ -145,16 +143,16 @@ class MainWindow(QMainWindow):
 
         if self.autoDetectButton:
             self.autoDetectButton.clicked.connect(self.autoDetect)
-            
+
         if self.latestVersionLink:
             self.latestVersionLink.setOpenExternalLinks(True)
-    
+
     def logMessage(self, message):
         if self.latestVersionLink:
             self.latestVersionLink.setText(message)
 
     def checkCompatibility(self, build=None):
-        if not build:
+        if not build or not build.strip():
             QMessageBox.warning(
                 self, "Input Required", "Please enter a Windows build version."
             )
@@ -162,6 +160,12 @@ class MainWindow(QMainWindow):
 
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.setEnabled(False)
+        if self.versionInput:
+            self.versionInput.setEnabled(False)
+        if self.autoDetectButton:
+            self.autoDetectButton.setEnabled(False)
+        if self.latestVersionLink:
+            self.latestVersionLink.setText("Checking...")
 
         self.worker = CompatibilityChecker(build)
         self.worker.log.connect(self.logMessage)
@@ -172,11 +176,15 @@ class MainWindow(QMainWindow):
     def onCheckFinished(self, foundRelease):
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.setEnabled(True)
+        if self.versionInput:
+            self.versionInput.setEnabled(True)
+        if self.autoDetectButton:
+            self.autoDetectButton.setEnabled(True)
 
         if foundRelease:
             name = foundRelease.get("name", "Unknown")
             url = foundRelease.get("html_url", "#")
-            
+
             if self.latestVersionLink:
                 self.latestVersionLink.setText(
                     f'<a href="{url}">Latest Release: {name}</a>'
@@ -185,7 +193,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self, "Release Found", f"Found release: {name}\n{url}"
                 )
-    
+
         else:
             if self.latestVersionLink:
                 self.latestVersionLink.setText(
@@ -199,6 +207,10 @@ class MainWindow(QMainWindow):
     def onCheckError(self, error):
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.setEnabled(True)
+        if self.versionInput:
+            self.versionInput.setEnabled(True)
+        if self.autoDetectButton:
+            self.autoDetectButton.setEnabled(True)
         showErrorPopup("Error during check", error)
 
     def autoDetect(self):

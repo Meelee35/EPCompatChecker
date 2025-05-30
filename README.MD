@@ -10,6 +10,7 @@ EPCompatChecker queries the [ExplorerPatcher GitHub releases](https://github.com
 - Auto-detect current Windows build version  
 - Support for GitHub tokens to avoid rate limiting  
 - Shows links to the compatible releases
+- Saved tokens are securely stored using keyring
 
 ## Usage
 

@@ -1,6 +1,6 @@
-# PyInstaller build folders
+
 /build/
 /dist/
+/.venv/
 
-# PyInstaller spec file (optional)
 *.spec

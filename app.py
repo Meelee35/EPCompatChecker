@@ -4,20 +4,23 @@ from PySide6.QtWidgets import (
     QPushButton,
     QMessageBox,
     QLineEdit,
-    QLabel
+    QLabel,
+    QInputDialog,
+    QListWidget,
+    QListWidgetItem,
 )
-from PySide6.QtUiTools import QUiLoader
-from PySide6.QtCore import QFile, QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
+from window_ui import Ui_window
 import sys
 import winreg
 import requests
 import ctypes
 import traceback
 import re
-import os
+import keyring
 from time import sleep
 
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_TOKEN = None
 
 
 def enableDpiAwareness():
@@ -45,12 +48,24 @@ def globalExceptionHandler(exctype, value, tb):
     sys.exit(1)
 
 
-# Set global exception hook before QApplication is created
 sys.excepthook = globalExceptionHandler
 
 
+def validate_github_token(token):
+    """
+    Validates a GitHub token by making an authenticated request to the user API.
+    Returns True if valid, False otherwise.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = requests.get("https://api.github.com/user", headers=headers)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
 class CompatibilityChecker(QThread):
-    finished = Signal(dict)
+    finished = Signal(list)  # Emit list of matching releases
     error = Signal(str)
     log = Signal(str)
 
@@ -61,18 +76,25 @@ class CompatibilityChecker(QThread):
         self.repo = "ExplorerPatcher"
 
     def run(self):
+        global GITHUB_TOKEN
         try:
             page = 1
-            foundRelease = None
+            foundReleases = []
+            foundNewest = False
+
             if GITHUB_TOKEN:
                 self.log.emit("Using GitHub token for authentication.")
-                sleep(3)
+                sleep(1)
 
             self.log.emit("Starting compatibility check...")
 
             while True:
                 url = f"https://api.github.com/repos/{self.owner}/{self.repo}/releases?per_page=100&page={page}"
-                response = requests.get(url, auth=("Meelee35", GITHUB_TOKEN))
+                headers = {}
+                if GITHUB_TOKEN:
+                    headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+
+                response = requests.get(url, headers=headers)
                 response.raise_for_status()
                 releases = response.json()
                 if not releases:
@@ -85,18 +107,20 @@ class CompatibilityChecker(QThread):
                     testedBuilds = self.checkReleaseCompatibility(body)
                     buildFromName = self.getBuildFromName(name)
 
-                    print(f"Checking release: {name}, tested builds: {testedBuilds}, build from name: {buildFromName}")
-                    self.log.emit(
-                        f"{name}: {testedBuilds}, {buildFromName}"
-                    )
-                    if self.build in testedBuilds or self.build == buildFromName:
-                        foundRelease = release
-                        break
-                if foundRelease:
+                    self.log.emit(f"Working on release: {name} (builds: {testedBuilds})")
+
+                    if self.build == buildFromName or self.build in testedBuilds:
+                        foundReleases.append(release)
+                        foundNewest = True
+
+                # If we found newest matching release(s) in this page, stop paging further
+                if foundNewest:
                     break
+
                 page += 1
 
-            self.finished.emit(foundRelease if foundRelease else {})
+            self.finished.emit(foundReleases)
+
         except Exception:
             error_msg = traceback.format_exc()
             self.log.emit("Error occurred:\n" + error_msg)
@@ -120,23 +144,23 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        loader = QUiLoader()
-        uiFile = QFile("window.ui")
-        uiFile.open(QFile.ReadOnly)
-        self.ui = loader.load(uiFile, self)
-        uiFile.close()
+        self.ui = Ui_window()
+        self.ui.setupUi(self)
 
-        self.setCentralWidget(self.ui)
-        self.resize(568, 288)
         self.setFixedSize(self.size())
         self.setWindowTitle("ExplorerPatcher Compatibility Checker")
 
-        self.checkCompatibilityButton = self.ui.findChild(
-            QPushButton, "checkCompatibility"
-        )
-        self.autoDetectButton = self.ui.findChild(QPushButton, "autoDetect")
-        self.versionInput = self.ui.findChild(QLineEdit, "versionInput")
-        self.latestVersionLink = self.ui.findChild(QLabel, "latestVersionLink")
+        self.checkCompatibilityButton = self.findChild(QPushButton, "checkCompatibility")
+        self.autoDetectButton = self.findChild(QPushButton, "autoDetect")
+        self.versionInput = self.findChild(QLineEdit, "versionInput")
+        self.latestVersionLink = self.findChild(QLabel, "latestVersionLink")
+        self.setTokenButton = self.findChild(QPushButton, "setToken")
+        self.useTokenLabel = self.findChild(QLabel, "usingToken")
+        self.foundVersionsList = self.findChild(QListWidget, "foundVersions")
+        self.clearTokenButton = self.findChild(QPushButton, "clearToken")
+
+        if self.clearTokenButton:
+            self.clearTokenButton.clicked.connect(self.clearToken)
 
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.clicked.connect(
@@ -148,6 +172,166 @@ class MainWindow(QMainWindow):
 
         if self.latestVersionLink:
             self.latestVersionLink.setOpenExternalLinks(True)
+
+        if self.setTokenButton:
+            self.setTokenButton.clicked.connect(self.askForToken)
+        
+        if self.foundVersionsList:
+            self.foundVersionsList.itemDoubleClicked.connect(self.listLinkClicked)
+            self.foundVersionsList.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.foundVersionsList.setStyleSheet(
+                """
+                QListWidget {
+                    color: lightblue;
+                }
+                """
+            )
+
+        self.loadToken()
+        self.updateTokenLabel()
+        
+    def clearToken(self):
+        global GITHUB_TOKEN
+        GITHUB_TOKEN = keyring.get_password("ExplorerPatcherChecker", "github_token")
+        if GITHUB_TOKEN:
+            try:
+                keyring.delete_password("ExplorerPatcherChecker", "github_token")
+                GITHUB_TOKEN = None
+                QMessageBox.information(
+                    self,
+                    "Token Cleared",
+                    "GitHub token cleared successfully."
+                )
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "Keyring Error",
+                    f"Failed to clear token from keyring: {e}"
+                )
+        else:
+            QMessageBox.information(
+                self,
+                "No Token Found",
+                "No GitHub token found in keyring to clear."
+            )
+        self.updateTokenLabel()
+        
+
+    def loadToken(self):
+        global GITHUB_TOKEN
+        try:
+            token = keyring.get_password("ExplorerPatcherChecker", "github_token")
+            if token:
+                GITHUB_TOKEN = token
+        except Exception as e:
+            print(f"Failed to load token from keyring: {e}")
+
+    def updateTokenLabel(self):
+        if self.useTokenLabel:
+            if GITHUB_TOKEN:
+                self.useTokenLabel.setText("Using GitHub token.")
+            else:
+                self.useTokenLabel.setText("Not using GitHub token.")
+
+    def askForToken(self):
+        loadChoice = QMessageBox.question(
+            self,
+            "Set GitHub Token",
+            "Would you like to load your saved GitHub token from the keyring?\n"
+            "If you haven't saved one yet, you can set it now by clicking 'No'.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+        )
+
+        global GITHUB_TOKEN
+
+        if loadChoice == QMessageBox.StandardButton.Cancel:
+            return
+
+        if loadChoice == QMessageBox.StandardButton.Yes:
+            try:
+                token = keyring.get_password("ExplorerPatcherChecker", "github_token")
+                if token:
+                    if validate_github_token(token):
+                        GITHUB_TOKEN = token
+                        QMessageBox.information(
+                            self,
+                            "Token Loaded",
+                            "GitHub token loaded successfully from keyring and validated."
+                        )
+                        self.updateTokenLabel()
+                        return
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Invalid Token",
+                            "The saved token in keyring is invalid. Please enter a new token."
+                        )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "No Token Found",
+                        "No GitHub token found in keyring. Please set a new token."
+                    )
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "Keyring Error",
+                    f"Failed to load token from keyring: {e}"
+                )
+
+        # Ask for new token
+        token, ok = QInputDialog.getText(
+            self,
+            "GitHub Token",
+            "You can set a Github token if you want to avoid rate limits.\nThis is optional.",
+            echo=QLineEdit.EchoMode.Password
+        )
+        if not ok or not token.strip():
+            QMessageBox.warning(
+                self,
+                "Invalid Token",
+                "You entered an empty token or cancelled. Please enter a valid GitHub token."
+            )
+            return
+
+        # Validate the new token
+        if not validate_github_token(token.strip()):
+            QMessageBox.warning(
+                self,
+                "Invalid Token",
+                "The token you entered is invalid. Please try again."
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Save Token",
+            "Do you want to save this token for future use?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                keyring.set_password("ExplorerPatcherChecker", "github_token", token.strip())
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "Keyring Error",
+                    f"Failed to save token to keyring: {e}"
+                )
+
+        GITHUB_TOKEN = token.strip()
+        self.updateTokenLabel()
+        
+    def listLinkClicked(self,item):
+        print("List item clicked:", item.text())
+        if item and item.toolTip():
+            url = item.toolTip()
+            if url.startswith("http"):
+                import webbrowser
+                webbrowser.open(url)
+            else:
+                QMessageBox.warning(self, "Invalid Link", "The link is not valid.")
 
     def logMessage(self, message):
         if self.latestVersionLink:
@@ -175,7 +359,7 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self.onCheckError)
         self.worker.start()
 
-    def onCheckFinished(self, foundRelease):
+    def onCheckFinished(self, foundReleases):
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.setEnabled(True)
         if self.versionInput:
@@ -183,20 +367,7 @@ class MainWindow(QMainWindow):
         if self.autoDetectButton:
             self.autoDetectButton.setEnabled(True)
 
-        if foundRelease:
-            name = foundRelease.get("name", "Unknown")
-            url = foundRelease.get("html_url", "#")
-
-            if self.latestVersionLink:
-                self.latestVersionLink.setText(
-                    f'<a href="{url}">Latest Release: {name}</a>'
-                )
-            else:
-                QMessageBox.information(
-                    self, "Release Found", f"Found release: {name}\n{url}"
-                )
-
-        else:
+        if not foundReleases:
             if self.latestVersionLink:
                 self.latestVersionLink.setText(
                     '<span style="color: red;">No compatible release found.</span>'
@@ -204,6 +375,42 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.information(
                     self, "No Release Found", "No compatible release found for this build."
+                )
+            # Clear the list widget if you have one
+            self.foundVersionsList.clear()
+
+
+        self.foundVersionsList.clear()
+
+        for release in foundReleases:
+            name = release.get("name", "Unknown")
+            url = release.get("html_url", "#")
+            item = QListWidgetItem(name)
+            item.setToolTip(url)  # Optional: tooltip shows the URL
+            self.foundVersionsList.addItem(f"{release.get('tag_name', 'No tag')} ")
+            self.foundVersionsList.item(self.foundVersionsList.count() - 1).setToolTip(url)
+
+        # Optionally select the first item by default
+        if self.foundVersionsList.count() > 0:
+            self.foundVersionsList.setCurrentRow(0)
+
+        # Update latestVersionLink label with the first release as summary
+        try: 
+            firstRelease = foundReleases[0]
+            name = firstRelease.get("name", "Unknown")
+            url = firstRelease.get("html_url", "#")
+            if self.latestVersionLink:
+                self.latestVersionLink.setText(
+                    f'<a href="{url}">Latest Release: {name}</a>'
+                )
+        except IndexError:
+            if self.latestVersionLink:
+                self.latestVersionLink.setText(
+                    '<span style="color: red;">No releases found.</span>'
+                )
+            else:
+                QMessageBox.information(
+                    self, "No Release Found", "No releases found."
                 )
 
     def onCheckError(self, error):

@@ -41,6 +41,8 @@ def globalExceptionHandler(exctype, value, tb):
     errorMessage = "".join(traceback.format_exception(exctype, value, tb))
     print("Unhandled Exception:", errorMessage)
     showErrorPopup("Fatal Error", errorMessage)
+    QApplication.quit()
+    sys.exit(1)
 
 
 # Set global exception hook before QApplication is created

@@ -15,6 +15,7 @@ import ctypes
 import traceback
 import re
 import os
+from time import sleep
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
@@ -47,8 +48,9 @@ sys.excepthook = globalExceptionHandler
 
 
 class CompatibilityChecker(QThread):
-    finished = Signal(dict)  # emits found release or empty dict if none found
+    finished = Signal(dict)
     error = Signal(str)
+    log = Signal(str) 
 
     def __init__(self, build, parent=None):
         super().__init__(parent)
@@ -60,12 +62,19 @@ class CompatibilityChecker(QThread):
         try:
             page = 1
             foundRelease = None
+            if GITHUB_TOKEN:
+                self.log.emit("Using GitHub token for authentication.")
+                sleep(3)
+                
+            self.log.emit("Starting compatibility check...")
+            
             while True:
                 url = f"https://api.github.com/repos/{self.owner}/{self.repo}/releases?per_page=100&page={page}"
                 response = requests.get(url, auth=("Meelee35", GITHUB_TOKEN))
                 response.raise_for_status()
                 releases = response.json()
                 if not releases:
+                    self.log.emit("No more releases found.")
                     break
 
                 for release in releases:
@@ -75,6 +84,9 @@ class CompatibilityChecker(QThread):
                     buildFromName = self.getBuildFromName(name)
 
                     print(f"Checking release: {name}, tested builds: {testedBuilds}, build from name: {buildFromName}")
+                    self.log.emit(
+                        f"{name}: {testedBuilds}, {buildFromName}"
+                    )
                     if self.build in testedBuilds or self.build == buildFromName:
                         foundRelease = release
                         break
@@ -98,6 +110,7 @@ class CompatibilityChecker(QThread):
     def getBuildFromName(self, version_name):
         parts = version_name.split('.')
         return '.'.join(parts[:2]) if len(parts) >= 2 else version_name
+    
 
 
 class MainWindow(QMainWindow):
@@ -121,6 +134,9 @@ class MainWindow(QMainWindow):
         self.autoDetectButton = self.ui.findChild(QPushButton, "autoDetect")
         self.versionInput = self.ui.findChild(QLineEdit, "versionInput")
         self.latestVersionLink = self.ui.findChild(QLabel, "latestVersionLink")
+        
+
+
 
         if self.checkCompatibilityButton:
             self.checkCompatibilityButton.clicked.connect(
@@ -132,6 +148,10 @@ class MainWindow(QMainWindow):
             
         if self.latestVersionLink:
             self.latestVersionLink.setOpenExternalLinks(True)
+    
+    def logMessage(self, message):
+        if self.latestVersionLink:
+            self.latestVersionLink.setText(message)
 
     def checkCompatibility(self, build=None):
         if not build:
@@ -144,6 +164,7 @@ class MainWindow(QMainWindow):
             self.checkCompatibilityButton.setEnabled(False)
 
         self.worker = CompatibilityChecker(build)
+        self.worker.log.connect(self.logMessage)
         self.worker.finished.connect(self.onCheckFinished)
         self.worker.error.connect(self.onCheckError)
         self.worker.start()

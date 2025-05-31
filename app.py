@@ -116,11 +116,14 @@ class CompatibilityChecker(QThread):
             self.error.emit(error_msg)
 
     def checkReleaseCompatibility(self, text):
-        match = re.search(r"builds\s+([\d.,\s]+)", text, re.IGNORECASE)
+        match = re.search(r"OS builds?\s+([\d\s,\.and]+)", text, re.IGNORECASE)
         builds = []
         if match:
             buildsStr = match.group(1)
-            builds = [b.strip() for b in re.split(r"[,\s]+", buildsStr) if b.strip()]
+            print("Raw builds string:", buildsStr)
+            buildsStr = buildsStr.replace(" and ", ",")
+            builds = [b.strip().rstrip('.') for b in re.split(r"[,\s]+", buildsStr) if b.strip()]
+            print("Build array", builds)
             return builds
         return []
 
